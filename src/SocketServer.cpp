@@ -197,7 +197,11 @@ int SocketServer::handleConnection()
     {
         int clientlen = sizeof(echoclient);
         int clientsock;
+        #ifdef __linux__
+        if ((clientsock = accept(m_listen_sock, (struct sockaddr *) &echoclient, (uint*)&clientlen)) > 0) 
+        #elif _WIN32
         if ((clientsock = accept(m_listen_sock, (struct sockaddr *) &echoclient, &clientlen)) > 0) 
+        #endif
         {
             // 
             // mode indirect
