@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <mutex>
+#include <memory>
 
 
 class SocketTunnelServer
@@ -14,6 +15,7 @@ class SocketTunnelServer
 
         int recv(std::string& dataOut);
         int send(std::string& dataIn);
+        bool isClosed() const { return m_serverfd == -1; }
 
     private:
         int m_serverfd;

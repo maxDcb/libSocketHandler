@@ -37,20 +37,43 @@ SocketTunnelServer::SocketTunnelServer(int serverfd, int serverPort)
 
 SocketTunnelServer::~SocketTunnelServer()
 {
-    #ifdef __linux__
+#ifdef __linux__
+    if (m_serverfd != -1)
+    {
         shutdown(m_serverfd, SHUT_RDWR);
-        m_serverfd=-1;
-        close(m_serverfd);    
-    #elif _WIN32
-        closesocket(m_serverfd);    
-        m_serverfd=-1;
-    #endif
+        close(m_serverfd);
+        m_serverfd = -1;
+    }
+#elif _WIN32
+    if (m_serverfd != INVALID_SOCKET)
+    {
+        closesocket(m_serverfd);
+        m_serverfd = INVALID_SOCKET;
+    }
+#endif
 }
 
 
 int SocketTunnelServer::recv(std::string& dataOut)
 {
     int res = readAllDataFromSocket(m_serverfd, dataOut);
+    if (res == -1)
+    {
+#ifdef __linux__
+        if (m_serverfd != -1)
+        {
+            shutdown(m_serverfd, SHUT_RDWR);
+            close(m_serverfd);
+            m_serverfd = -1;
+        }
+#elif _WIN32
+        if (m_serverfd != INVALID_SOCKET)
+        {
+            closesocket(m_serverfd);
+            m_serverfd = INVALID_SOCKET;
+        }
+#endif
+    }
     return res;
 }
 
@@ -67,9 +90,10 @@ int SocketTunnelServer::send(std::string& dataIn)
 // SocketServer
 // 
 SocketServer::SocketServer(int serverPort)
-: m_serverPort(serverPort)
-, m_isStoped(true)
-, m_isLaunched(false)
+    : m_serverPort(serverPort)
+    , m_listen_sock(-1)
+    , m_isStoped(true)
+    , m_isLaunched(false)
 {
     #ifdef __linux__
     #elif _WIN32
@@ -100,18 +124,18 @@ void SocketServer::launch()
 
 void SocketServer::stop()
 {
-    m_isStoped=true;
-    if(m_listen_sock==-1)
+    m_isStoped = true;
+    if (m_listen_sock == -1)
         return;
 
-    #ifdef __linux__
-        shutdown(m_listen_sock, SHUT_RDWR);
-        m_listen_sock=-1;
-        close(m_listen_sock);    
-    #elif _WIN32
-        closesocket(m_listen_sock);    
-        m_listen_sock=-1;
-    #endif
+#ifdef __linux__
+    shutdown(m_listen_sock, SHUT_RDWR);
+    close(m_listen_sock);
+    m_listen_sock = -1;
+#elif _WIN32
+    closesocket(m_listen_sock);
+    m_listen_sock = INVALID_SOCKET;
+#endif
 }
 
 
@@ -216,9 +240,11 @@ int SocketServer::handleConnection()
 
     #ifdef __linux__
         shutdown(m_listen_sock, SHUT_RDWR);
-        close(m_listen_sock);    
+        close(m_listen_sock);
+        m_listen_sock = -1;
     #elif _WIN32
-        closesocket(m_listen_sock);    
+        closesocket(m_listen_sock);
+        m_listen_sock = INVALID_SOCKET;
     #endif
 
     return 1;
@@ -228,7 +254,13 @@ int SocketServer::handleConnection()
 void SocketServer::cleanTunnel()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_socketTunnelServers.erase(std::remove_if(m_socketTunnelServers.begin(), m_socketTunnelServers.end(),
-                             [](const std::unique_ptr<SocketTunnelServer>& ptr) { return ptr == nullptr; }),
-              m_socketTunnelServers.end());
+    m_socketTunnelServers.erase(
+        std::remove_if(
+            m_socketTunnelServers.begin(),
+            m_socketTunnelServers.end(),
+            [](const std::unique_ptr<SocketTunnelServer>& ptr)
+            {
+                return ptr == nullptr || ptr->isClosed();
+            }),
+        m_socketTunnelServers.end());
 }

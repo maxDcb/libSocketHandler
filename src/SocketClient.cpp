@@ -74,26 +74,39 @@ SocketTunnelClient::SocketTunnelClient()
 SocketTunnelClient::~SocketTunnelClient()
 {
 #ifdef __linux__
-    shutdown(m_clientfd, SHUT_RDWR);
-    m_clientfd=-1;
-    close(m_clientfd);    
+    if (m_clientfd != -1)
+    {
+        shutdown(m_clientfd, SHUT_RDWR);
+        close(m_clientfd);
+        m_clientfd = -1;
+    }
 #elif _WIN32
     WSACleanup();
-    closesocket(m_clientfd);    
-    m_clientfd=-1;
+    if (m_clientfd != INVALID_SOCKET)
+    {
+        closesocket(m_clientfd);
+        m_clientfd = INVALID_SOCKET;
+    }
 #endif
 }
 
 
 int SocketTunnelClient::reset()
-{            
-    #ifdef __linux__
+{
+#ifdef __linux__
+    if (m_clientfd != -1)
+    {
         shutdown(m_clientfd, SHUT_RDWR);
-        m_clientfd=-1;
-    #elif _WIN32
-        closesocket(m_clientfd);    
-        m_clientfd=-1;
-    #endif
+        close(m_clientfd);
+        m_clientfd = -1;
+    }
+#elif _WIN32
+    if (m_clientfd != INVALID_SOCKET)
+    {
+        closesocket(m_clientfd);
+        m_clientfd = INVALID_SOCKET;
+    }
+#endif
     return 1;
 }
 
