@@ -5,17 +5,17 @@ set(DEFAULT_BUILD_TYPE "Release")
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-  set(SOURCE_FILES
-  src/SocketServer.cpp
-  src/SocketClient.cpp
-  )
+find_package(Threads REQUIRED)
 
-include_directories(../src)
+set(SOURCE_FILES
+    src/SocketServer.cpp
+    src/SocketClient.cpp
+)
 
 add_library(${PROJECT_NAME} STATIC ${SOURCE_FILES})
-set_property(TARGET ${PROJECT_NAME} PROPERTY
-  MSVC_RUNTIME_LIBRARY "MultiThreaded")
+set_property(TARGET ${PROJECT_NAME} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
 target_include_directories(${PROJECT_NAME} PUBLIC src)
 set_property(TARGET ${PROJECT_NAME} PROPERTY POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(${PROJECT_NAME} PUBLIC Threads::Threads)
 
 add_subdirectory(tests)

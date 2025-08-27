@@ -45,49 +45,50 @@ inline int send_sock(int sock, const char *buffer, uint32_t size)
 
 inline int readAllDataFromSocket(int sockfd, std::string& output)
 {
-    fd_set readfds;
-    struct timeval timeout;
+    // return codes:
+    //  1  - data read successfully
+    //  0  - error while waiting or receiving
+    // -1  - connection closed by peer
+
     char buffer[BUF_SIZE];
     ssize_t bytes_received;
 
-    // Initialize the file descriptor set
-    FD_ZERO(&readfds);
-    FD_SET(sockfd, &readfds);
-
-    // Set timeout: 10 milliseconds
-    timeout.tv_sec = 0;
-    timeout.tv_usec = 10000;
-
     output.clear(); // Ensure the output string is empty
 
-    while (true) 
+    while (true)
     {
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(sockfd, &readfds);
+
+        struct timeval timeout;
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 10000; // 10ms
+
         // Check for socket readiness
         int activity = select(sockfd + 1, &readfds, NULL, NULL, &timeout);
 
-        if (activity < 0) 
+        if (activity < 0)
         {
-            // perror("select error");
+            // select error
             return 0;
-        } 
-        else if (activity == 0) 
+        }
+        else if (activity == 0)
         {
             // Timeout, no more data
             break;
-        } 
-        else if (FD_ISSET(sockfd, &readfds)) 
+        }
+        else if (FD_ISSET(sockfd, &readfds))
         {
             // Data is available to read
             bytes_received = recv(sockfd, buffer, BUF_SIZE, 0);
-            if (bytes_received < 0) 
+            if (bytes_received < 0)
             {
-                // perror("recv failed");
                 return 0;
-            } 
-            else if (bytes_received == 0) 
-            { 
+            }
+            else if (bytes_received == 0)
+            {
                 // Connection closed by the peer
-                // std::cout << "Connection closed by peer" << std::endl;
                 return -1;
             }
 
