@@ -14,6 +14,8 @@
 #ifndef _SSIZE_T_DEFINED
 #ifdef  _WIN64
 typedef unsigned __int64    ssize_t;
+#else
+typedef int ssize_t;   // 32-bit
 #endif
 #define _SSIZE_T_DEFINED
 #endif
