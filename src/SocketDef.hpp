@@ -11,13 +11,15 @@
 
 
 // windows compatibility
+#ifdef _WIN32
 #ifndef _SSIZE_T_DEFINED
-#ifdef  _WIN64
-typedef unsigned __int64    ssize_t;
+#ifdef _WIN64
+typedef unsigned __int64 ssize_t;
 #else
-typedef int ssize_t;   // 32-bit
+typedef int ssize_t;
 #endif
 #define _SSIZE_T_DEFINED
+#endif
 #endif
 
 #ifndef SHUT_RDWR
