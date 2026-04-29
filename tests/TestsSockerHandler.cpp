@@ -8,14 +8,26 @@
 
 int main(int argc, char *argv[])
 {
-    const int port = 12345;
-
     // Start server
-    SocketServer server(port);
+    SocketServer server(0);
     server.launch();
 
-    // Give the server time to start
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    int port = 0;
+    for (int i = 0; i < 100; ++i)
+    {
+        if (server.isServerLaunched())
+        {
+            port = server.getServerPort();
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    if (port == 0)
+    {
+        std::cerr << "Server did not publish a listening port" << std::endl;
+        return 1;
+    }
 
     // Connect client
     SocketTunnelClient client;

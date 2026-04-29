@@ -41,6 +41,10 @@ public:
     {
         return m_isLaunched;
     }
+    int getServerPort()
+    {
+        return m_serverPort;
+    }
 
     std::vector<std::unique_ptr<SocketTunnelServer>> m_socketTunnelServers;
 

@@ -106,7 +106,7 @@ SocketServer::SocketServer(int serverPort)
 SocketServer::~SocketServer() 
 { 
     stop();
-    if(m_isLaunched == true)
+    if(m_socketServer && m_socketServer->joinable())
         this->m_socketServer->join();
 
     #ifdef __linux__  
@@ -181,6 +181,18 @@ int SocketServer::createServerSocket(struct sockaddr_in &echoclient)
 
         // std::cout << "[-] Bind error.\n";
         return -1;
+    }
+
+    struct sockaddr_in boundAddress;
+    memset(&boundAddress, 0, sizeof(boundAddress));
+    #ifdef __linux__
+        socklen_t boundAddressSize = sizeof(boundAddress);
+    #elif _WIN32
+        int boundAddressSize = sizeof(boundAddress);
+    #endif
+    if (getsockname(serversock, (struct sockaddr *)&boundAddress, &boundAddressSize) == 0)
+    {
+        m_serverPort = ntohs(boundAddress.sin_port);
     }
 
     // Listen on the server socket 
