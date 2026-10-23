@@ -5,6 +5,7 @@
 #include <string>
 #include <mutex>
 #include <memory>
+#include <atomic>
 
 
 class SocketTunnelServer
@@ -15,6 +16,7 @@ class SocketTunnelServer
 
         int recv(std::string& dataOut);
         int send(std::string& dataIn);
+        void close();
         bool isClosed() const { return m_serverfd == -1; }
 
     private:
@@ -33,6 +35,7 @@ public:
     void launch();
     void stop();
     void cleanTunnel();
+    std::vector<std::shared_ptr<SocketTunnelServer>> getTunnels();
     bool isServerStoped()
     {
         return m_isStoped;
@@ -46,19 +49,17 @@ public:
         return m_serverPort;
     }
 
-    std::vector<std::unique_ptr<SocketTunnelServer>> m_socketTunnelServers;
-
 private:
-    int createListenSocket(struct sockaddr_in &echoclient) ;
     int createServerSocket(struct sockaddr_in &echoclient);
-    int handleConnection();
+    void handleConnection(int listenSocket);
 
     int m_serverPort;
-    int m_listen_sock;
+    std::atomic<int> m_listen_sock;
 
-    bool m_isLaunched;
-    bool m_isStoped;
+    std::atomic<bool> m_isLaunched;
+    std::atomic<bool> m_isStoped;
     std::unique_ptr<std::thread> m_socketServer;
 
-    std::mutex m_mutex;    
+    std::mutex m_mutex;
+    std::vector<std::shared_ptr<SocketTunnelServer>> m_socketTunnelServers;
 };

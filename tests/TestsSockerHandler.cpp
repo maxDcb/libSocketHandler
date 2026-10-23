@@ -29,6 +29,20 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    SocketServer occupied(port);
+    occupied.launch();
+    if (occupied.isServerLaunched())
+    {
+        std::cerr << "Second server unexpectedly bound occupied port" << std::endl;
+        return 1;
+    }
+    occupied.launch(); // A failed launch must not leave a joinable thread behind.
+    if (occupied.isServerLaunched())
+    {
+        std::cerr << "Retry unexpectedly bound occupied port" << std::endl;
+        return 1;
+    }
+
     // Connect client
     SocketTunnelClient client;
     if (!client.init("127.0.0.1", port))
@@ -38,18 +52,19 @@ int main(int argc, char *argv[])
     }
 
     // Wait until server registers the tunnel
-    for (int i = 0; i < 10 && server.m_socketTunnelServers.empty(); ++i)
+    for (int i = 0; i < 10 && server.getTunnels().empty(); ++i)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    if (server.m_socketTunnelServers.empty())
+    auto tunnels = server.getTunnels();
+    if (tunnels.empty())
     {
         std::cerr << "Server did not accept connection" << std::endl;
         return 1;
     }
 
-    auto &tunnel = server.m_socketTunnelServers.front();
+    auto tunnel = tunnels.front();
 
     // Test server -> client
     std::string msg = "fromServer";
@@ -80,7 +95,7 @@ int main(int argc, char *argv[])
     std::string tmp;
     tunnel->recv(tmp); // trigger detection of closed socket
     server.cleanTunnel();
-    if (!server.m_socketTunnelServers.empty())
+    if (!server.getTunnels().empty())
     {
         std::cerr << "Tunnel cleanup failed" << std::endl;
         return 1;

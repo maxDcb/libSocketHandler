@@ -37,11 +37,16 @@ SocketTunnelServer::SocketTunnelServer(int serverfd, int serverPort)
 
 SocketTunnelServer::~SocketTunnelServer()
 {
+    close();
+}
+
+void SocketTunnelServer::close()
+{
 #ifdef __linux__
     if (m_serverfd != -1)
     {
         shutdown(m_serverfd, SHUT_RDWR);
-        close(m_serverfd);
+        ::close(m_serverfd);
         m_serverfd = -1;
     }
 #elif _WIN32
@@ -58,29 +63,20 @@ int SocketTunnelServer::recv(std::string& dataOut)
 {
     int res = readAllDataFromSocket(m_serverfd, dataOut);
     if (res == -1)
-    {
-#ifdef __linux__
-        if (m_serverfd != -1)
-        {
-            shutdown(m_serverfd, SHUT_RDWR);
-            close(m_serverfd);
-            m_serverfd = -1;
-        }
-#elif _WIN32
-        if (m_serverfd != INVALID_SOCKET)
-        {
-            closesocket(m_serverfd);
-            m_serverfd = INVALID_SOCKET;
-        }
-#endif
-    }
+        close();
     return res;
 }
 
 int SocketTunnelServer::send(std::string& dataIn)
 {
     if(dataIn.size()>0)
-        send_sock(m_serverfd, dataIn.data(), dataIn.size());
+    {
+        if (send_sock(m_serverfd, dataIn.data(), dataIn.size()) != static_cast<int>(dataIn.size()))
+        {
+            close();
+            return -1;
+        }
+    }
 
     return 1;
 }
@@ -92,8 +88,8 @@ int SocketTunnelServer::send(std::string& dataIn)
 SocketServer::SocketServer(int serverPort)
     : m_serverPort(serverPort)
     , m_listen_sock(-1)
-    , m_isStoped(true)
     , m_isLaunched(false)
+    , m_isStoped(true)
 {
     #ifdef __linux__
     #elif _WIN32
@@ -118,23 +114,50 @@ SocketServer::~SocketServer()
 
 void SocketServer::launch()
 {
-    this->m_socketServer = std::make_unique<std::thread>(&SocketServer::handleConnection, this);
+    stop();
+    if (m_socketServer && m_socketServer->joinable())
+        m_socketServer->join();
+    m_socketServer.reset();
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (const auto& tunnel : m_socketTunnelServers)
+            tunnel->close();
+        m_socketTunnelServers.clear();
+    }
+
+    struct sockaddr_in clientAddress;
+    const int listenSocket = createServerSocket(clientAddress);
+    if (listenSocket == -1)
+        return;
+
+    m_listen_sock = listenSocket;
+    m_isStoped = false;
+    m_isLaunched = true;
+    try
+    {
+        m_socketServer = std::make_unique<std::thread>(&SocketServer::handleConnection, this, listenSocket);
+    }
+    catch (...)
+    {
+        stop();
+        throw;
+    }
 }
 
 
 void SocketServer::stop()
 {
     m_isStoped = true;
-    if (m_listen_sock == -1)
+    m_isLaunched = false;
+    const int listenSocket = m_listen_sock.exchange(-1);
+    if (listenSocket == -1)
         return;
 
 #ifdef __linux__
-    shutdown(m_listen_sock, SHUT_RDWR);
-    close(m_listen_sock);
-    m_listen_sock = -1;
+    shutdown(listenSocket, SHUT_RDWR);
+    close(listenSocket);
 #elif _WIN32
-    closesocket(m_listen_sock);
-    m_listen_sock = INVALID_SOCKET;
+    closesocket(listenSocket);
 #endif
 }
 
@@ -211,38 +234,29 @@ int SocketServer::createServerSocket(struct sockaddr_in &echoclient)
 }
 
 
-int SocketServer::handleConnection()
+void SocketServer::handleConnection(int listenSocket)
 {
     struct sockaddr_in echoclient;
-    m_listen_sock = createServerSocket(echoclient);
-    
-    if(m_listen_sock == -1) 
-    {
-        // std::cout << "[-] Failed to create server\n";
-        return -1;
-    }
 
     #ifdef __linux__
         signal(SIGPIPE, sig_handler);  
     #elif _WIN32  
     #endif
 
-    m_isStoped = false;
-    m_isLaunched = true;
     while(!m_isStoped) 
     {
         int clientlen = sizeof(echoclient);
         int clientsock;
         #ifdef __linux__
-        if ((clientsock = accept(m_listen_sock, (struct sockaddr *) &echoclient, (uint*)&clientlen)) > 0) 
+        if ((clientsock = accept(listenSocket, (struct sockaddr *) &echoclient, (uint*)&clientlen)) >= 0)
         #elif _WIN32
-        if ((clientsock = accept(m_listen_sock, (struct sockaddr *) &echoclient, &clientlen)) > 0) 
+        if ((clientsock = accept(listenSocket, (struct sockaddr *) &echoclient, &clientlen)) >= 0)
         #endif
         {
             // 
             // mode indirect
             //
-            std::unique_ptr<SocketTunnelServer> socksTunnelServer = std::make_unique<SocketTunnelServer>(clientsock, m_serverPort);
+            std::shared_ptr<SocketTunnelServer> socksTunnelServer = std::make_shared<SocketTunnelServer>(clientsock, m_serverPort);
             std::lock_guard<std::mutex> lock(m_mutex);
             m_socketTunnelServers.push_back(std::move(socksTunnelServer));
         }
@@ -250,16 +264,13 @@ int SocketServer::handleConnection()
 
     // std::cout << "handleConnection stoped\n";
 
-    #ifdef __linux__
-        shutdown(m_listen_sock, SHUT_RDWR);
-        close(m_listen_sock);
-        m_listen_sock = -1;
-    #elif _WIN32
-        closesocket(m_listen_sock);
-        m_listen_sock = INVALID_SOCKET;
-    #endif
+    stop();
+}
 
-    return 1;
+std::vector<std::shared_ptr<SocketTunnelServer>> SocketServer::getTunnels()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_socketTunnelServers;
 }
 
 
@@ -270,7 +281,7 @@ void SocketServer::cleanTunnel()
         std::remove_if(
             m_socketTunnelServers.begin(),
             m_socketTunnelServers.end(),
-            [](const std::unique_ptr<SocketTunnelServer>& ptr)
+            [](const std::shared_ptr<SocketTunnelServer>& ptr)
             {
                 return ptr == nullptr || ptr->isClosed();
             }),
