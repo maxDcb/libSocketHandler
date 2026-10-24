@@ -1,6 +1,13 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <string>
+
 #ifdef __linux__
+#include <sys/select.h>
+#include <sys/socket.h>
 #elif _WIN32
 #include <winsock2.h>
 #include <windows.h>
@@ -9,18 +16,6 @@
 
 #define BUF_SIZE 2048
 
-
-// windows compatibility
-#ifdef _WIN32
-#ifndef _SSIZE_T_DEFINED
-#ifdef _WIN64
-typedef unsigned __int64 ssize_t;
-#else
-typedef int ssize_t;
-#endif
-#define _SSIZE_T_DEFINED
-#endif
-#endif
 
 #ifndef SHUT_RDWR
 #define SHUT_RDWR 2 
@@ -47,7 +42,9 @@ inline int send_sock(int sock, const char *buffer, uint32_t size)
 }
 
 
-inline int readAllDataFromSocket(int sockfd, std::string& output)
+inline int readAllDataFromSocket(int sockfd, std::string& output,
+                                 int waitUsec = 10000,
+                                 std::size_t maxBytes = std::numeric_limits<std::size_t>::max())
 {
     // return codes:
     //  1  - data read successfully
@@ -55,7 +52,8 @@ inline int readAllDataFromSocket(int sockfd, std::string& output)
     // -1  - connection closed by peer
 
     char buffer[BUF_SIZE];
-    ssize_t bytes_received;
+    // recv returns int on both supported platforms. Keep SOCKET_ERROR signed.
+    int bytes_received;
 
     output.clear(); // Ensure the output string is empty
 
@@ -67,7 +65,7 @@ inline int readAllDataFromSocket(int sockfd, std::string& output)
 
         struct timeval timeout;
         timeout.tv_sec = 0;
-        timeout.tv_usec = 10000; // 10ms
+        timeout.tv_usec = waitUsec;
 
         // Check for socket readiness
         int activity = select(sockfd + 1, &readfds, NULL, NULL, &timeout);
@@ -75,7 +73,7 @@ inline int readAllDataFromSocket(int sockfd, std::string& output)
         if (activity < 0)
         {
             // select error
-            return 0;
+            return output.empty() ? 0 : 1;
         }
         else if (activity == 0)
         {
@@ -87,17 +85,17 @@ inline int readAllDataFromSocket(int sockfd, std::string& output)
             // Data is available to read
             bytes_received = recv(sockfd, buffer, BUF_SIZE, 0);
             if (bytes_received < 0)
-            {
-                return 0;
-            }
+                return output.empty() ? 0 : 1;
             else if (bytes_received == 0)
             {
                 // Connection closed by the peer
-                return -1;
+                return output.empty() ? -1 : 1;
             }
 
             // Append received data to the output string
             output.append(buffer, bytes_received);
+            if (output.size() >= maxBytes)
+                return 1;
         }
     }
 

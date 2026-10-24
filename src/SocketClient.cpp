@@ -51,7 +51,15 @@ int connect_to_host(const std::string& ip_dst, int port)
 
 #endif
 
-    return !connect(sockfd, (const sockaddr*)&serv_addr, sizeof(serv_addr)) ? sockfd : -1;
+    if (connect(sockfd, (const sockaddr*)&serv_addr, sizeof(serv_addr)) == 0)
+        return sockfd;
+
+#ifdef __linux__
+    close(sockfd);
+#elif _WIN32
+    closesocket(sockfd);
+#endif
+    return -1;
 }
 
 
@@ -81,12 +89,12 @@ SocketTunnelClient::~SocketTunnelClient()
         m_clientfd = -1;
     }
 #elif _WIN32
-    WSACleanup();
     if (m_clientfd != INVALID_SOCKET)
     {
         closesocket(m_clientfd);
         m_clientfd = INVALID_SOCKET;
     }
+    WSACleanup();
 #endif
 }
 
@@ -132,10 +140,24 @@ int SocketTunnelClient::init(const std::string& ip_dst, int port)
 }
 
 
-int SocketTunnelClient::process(const std::string& dataIn, std::string& dataOut)
+int SocketTunnelClient::process(const std::string& dataIn, std::string& dataOut, bool* wasSent)
 {
+    if (wasSent)
+        *wasSent = false;
+    if (m_clientfd == -1)
+        return 0;
+
     if(dataIn.size()>0)
-        send_sock(m_clientfd, dataIn.data(), dataIn.size());
+    {
+        if (send_sock(m_clientfd, dataIn.data(), dataIn.size()) != static_cast<int>(dataIn.size()))
+        {
+            reset();
+            return 0;
+        }
+    }
+
+    if (wasSent)
+        *wasSent = true;
 
     int res = readAllDataFromSocket(m_clientfd, dataOut);
     return res;

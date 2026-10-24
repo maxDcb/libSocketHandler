@@ -29,7 +29,7 @@ class SocketServer
 {
 
 public:
-    SocketServer(int serverPort);
+    SocketServer(int serverPort, std::string bindAddress = "0.0.0.0");
     ~SocketServer(); 
 
     void launch();
@@ -54,6 +54,7 @@ private:
     void handleConnection(int listenSocket);
 
     int m_serverPort;
+    std::string m_bindAddress;
     std::atomic<int> m_listen_sock;
 
     std::atomic<bool> m_isLaunched;

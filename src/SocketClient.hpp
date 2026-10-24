@@ -11,7 +11,7 @@ class SocketTunnelClient
         ~SocketTunnelClient(); 
 
         int init(const std::string& ip_dst, int port);
-        int process(const std::string& dataIn, std::string& dataOut);
+        int process(const std::string& dataIn, std::string& dataOut, bool* wasSent = nullptr);
         int reset();
 
     private:

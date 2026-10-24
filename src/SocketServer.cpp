@@ -20,6 +20,7 @@
 
 
 #define MAXPENDING 200
+#define MAX_ACTIVE_TUNNELS 256
 
 
 using namespace std;
@@ -61,7 +62,8 @@ void SocketTunnelServer::close()
 
 int SocketTunnelServer::recv(std::string& dataOut)
 {
-    int res = readAllDataFromSocket(m_serverfd, dataOut);
+    // The listener scans all tunnels; an idle tunnel must not cost 10 ms.
+    int res = readAllDataFromSocket(m_serverfd, dataOut, 0, 64 * 1024);
     if (res == -1)
         close();
     return res;
@@ -85,8 +87,9 @@ int SocketTunnelServer::send(std::string& dataIn)
 //
 // SocketServer
 // 
-SocketServer::SocketServer(int serverPort)
+SocketServer::SocketServer(int serverPort, std::string bindAddress)
     : m_serverPort(serverPort)
+    , m_bindAddress(std::move(bindAddress))
     , m_listen_sock(-1)
     , m_isLaunched(false)
     , m_isStoped(true)
@@ -195,7 +198,15 @@ int SocketServer::createServerSocket(struct sockaddr_in &echoclient)
     // Construct the server sockaddr_in structure 
     memset(&echoserver, 0, sizeof(echoserver));       // Clear struct 
     echoserver.sin_family = AF_INET;                  // Internet/IP 
-    echoserver.sin_addr.s_addr = htonl(INADDR_ANY);   // Incoming addr 
+    if (inet_pton(AF_INET, m_bindAddress.c_str(), &echoserver.sin_addr) != 1)
+    {
+#ifdef __linux__
+        close(serversock);
+#elif _WIN32
+        closesocket(serversock);
+#endif
+        return -1;
+    }
     echoserver.sin_port = htons(m_serverPort);       // server port 
 
     // Bind the server socket 
@@ -263,7 +274,14 @@ void SocketServer::handleConnection(int listenSocket)
             //
             std::shared_ptr<SocketTunnelServer> socksTunnelServer = std::make_shared<SocketTunnelServer>(clientsock, m_serverPort);
             std::lock_guard<std::mutex> lock(m_mutex);
-            m_socketTunnelServers.push_back(std::move(socksTunnelServer));
+            m_socketTunnelServers.erase(
+                std::remove_if(m_socketTunnelServers.begin(), m_socketTunnelServers.end(),
+                    [](const auto& tunnel) { return !tunnel || tunnel->isClosed(); }),
+                m_socketTunnelServers.end());
+            if (m_socketTunnelServers.size() >= MAX_ACTIVE_TUNNELS)
+                socksTunnelServer->close();
+            else
+                m_socketTunnelServers.push_back(std::move(socksTunnelServer));
         }
     }
 
