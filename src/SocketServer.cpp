@@ -174,7 +174,13 @@ int SocketServer::createServerSocket(struct sockaddr_in &echoclient)
     }
 
     int opt = 1;
-    if (setsockopt(serversock, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt)) < 0) 
+#ifdef _WIN32
+    // SO_REUSEADDR lets another Windows socket take over an occupied port.
+    const int addressOption = SO_EXCLUSIVEADDRUSE;
+#else
+    const int addressOption = SO_REUSEADDR;
+#endif
+    if (setsockopt(serversock, SOL_SOCKET, addressOption, (const char*)&opt, sizeof(opt)) < 0)
     {
         // std::cout << "[-] Error setting socket options: " << strerror(errno) << std::endl;
         #ifdef __linux__
@@ -193,7 +199,6 @@ int SocketServer::createServerSocket(struct sockaddr_in &echoclient)
     echoserver.sin_port = htons(m_serverPort);       // server port 
 
     // Bind the server socket 
-    // TODO should fail if the port is already in use, but doesn't
     if (bind(serversock, (struct sockaddr *)&echoserver, sizeof(echoserver)) < 0) 
     {
         #ifdef __linux__
